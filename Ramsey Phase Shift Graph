@@ -1,0 +1,95 @@
+from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import NoiseModel, thermal_relaxation_error
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Noise model setup ---
+t1 = 5e3     # ns
+t2 = 3e3     # ns
+gate_time = 100  # ns
+
+noise_model = NoiseModel()
+relax_error = thermal_relaxation_error(t1, t2, gate_time)
+noise_model.add_all_qubit_quantum_error(relax_error, ['h', 'rz'])
+
+backend = AerSimulator(noise_model=noise_model)
+shots = 1024
+
+phi_vals = np.linspace(0, 2 * np.pi, 50)
+prob_0 = []
+fidelity_list = []
+tvd_list = []
+error_rate_list = []
+
+for phi in phi_vals:
+    qc = QuantumCircuit(1, 1)
+    qc.h(0)
+    qc.rz(phi, 0)
+    qc.h(0)
+    qc.measure(0, 0)
+
+    job = backend.run(qc, shots=shots)
+    result = job.result()
+    counts = result.get_counts()
+    P0 = counts.get('0', 0) / shots
+    P1 = counts.get('1', 0) / shots
+
+    # Ideal Ramsey probabilities
+    ideal_P0 = 0.5 * (1 + np.cos(phi))
+    ideal_P1 = 1 - ideal_P0
+
+    # Classical fidelity between measured and ideal distributions
+    fidelity = (np.sqrt(P0 * ideal_P0) + np.sqrt(P1 * ideal_P1)) ** 2
+
+    # Total Variation Distance (TVD)
+    tvd = 0.5 * (abs(P0 - ideal_P0) + abs(P1 - ideal_P1))
+
+    # Error rate (same as TVD for two outcomes)
+    error_rate = tvd
+
+    prob_0.append(P0)
+    fidelity_list.append(fidelity)
+    tvd_list.append(tvd)
+    error_rate_list.append(error_rate)
+
+    # Print for each phase
+    print("Measurement results:", counts)
+    print(f"Empirical P('0'): {P0:.3f}, P('1'): {P1:.3f}")
+    print(f"Fidelity: {fidelity:.3f}")
+    print(f"Error rate: {error_rate:.3f}")
+    print(f"Distribution divergence (TVD): {tvd:.3f}")
+    print("-" * 40)
+    
+# Compute averages:
+avg_fidelity = np.mean(fidelity_list)
+avg_error_rate = np.mean(error_rate_list)
+avg_tvd = np.mean(tvd_list)  # (this is the same as avg_error_rate here)
+
+print("="*40)
+print(f"Average Fidelity over all phases: {avg_fidelity:.3f}")
+print(f"Average Error Rate over all phases: {avg_error_rate:.3f}")
+print(f"Average Distribution Divergence (TVD) over all phases: {avg_tvd:.3f}")
+print("="*40)
+
+# --- Plot probability curve (Ramsey fringe) ---
+plt.figure(figsize=(8,5))
+plt.plot(phi_vals, prob_0, label="Observed P(|0⟩)")
+plt.plot(phi_vals, 0.5 * (1 + np.cos(phi_vals)), 'r--', label="Ideal P(|0⟩)")
+plt.xlabel("Phase Shift φ (radians)")
+plt.ylabel("P(|0⟩)")
+plt.title("Noisy Ramsey Interference (with Decoherence)")
+plt.legend()
+plt.grid(True)
+plt.show()
+
+# --- Plot Fidelity & Error Rate curves ---
+plt.figure(figsize=(8,5))
+plt.plot(phi_vals, fidelity_list, label="Fidelity")
+plt.plot(phi_vals, error_rate_list, label="Error Rate (TVD)")
+plt.xlabel("Phase Shift φ (radians)")
+plt.ylabel("Metric Value")
+plt.title("Fidelity and Error Rate vs. Phase")
+plt.legend()
+plt.grid(True)
+plt.show()
