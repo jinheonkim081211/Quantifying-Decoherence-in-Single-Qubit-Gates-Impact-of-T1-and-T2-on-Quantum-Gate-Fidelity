@@ -1,0 +1,46 @@
+from qiskit import QuantumCircuit, transpile
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import NoiseModel, thermal_relaxation_error
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Parameters ---
+t1_values = np.linspace(5e3, 50e3, 100)    # 100 steps from 5e3 to 50e3
+t2_values = np.linspace(3e3, 30e3, 100)    # 100 steps from 3e3 to 30e3 (proportional sweep)
+gate_time = 100                           # Gate time (ns)
+shots = 1024
+
+avg_fidelities = []
+
+for t1, t2 in zip(t1_values, t2_values):
+    fidelities = []
+    for run in range(3):
+        # Create noise model for current t1, t2
+        noise_model = NoiseModel()
+        relax_error = thermal_relaxation_error(t1, t2, gate_time)
+        noise_model.add_all_qubit_quantum_error(relax_error, ['x'])
+
+        # Build and transpile circuit
+        qc = QuantumCircuit(1, 1)
+        qc.x(0)
+        qc.measure(0, 0)
+        backend = AerSimulator(noise_model=noise_model)
+        qc_t = transpile(qc, backend)
+        job = backend.run(qc_t, shots=shots)
+        result = job.result()
+        counts = result.get_counts()
+
+        P1 = counts.get('1', 0) / shots
+        fidelities.append(P1)
+
+    avg_fidelity = np.mean(fidelities)
+    avg_fidelities.append(avg_fidelity)
+    print(f"T1: {t1:.0f} ns, T2: {t2:.0f} ns, Average Fidelity: {avg_fidelity:.4f}")
+
+# --- Plotting ---
+plt.plot(t1_values, avg_fidelities, marker='o')
+plt.xlabel("T1 value (ns)")
+plt.ylabel("Average Fidelity")
+plt.title("Average Fidelity vs. T1 (Pauli-X, varying decoherence)")
+plt.grid(True)
+plt.show()
