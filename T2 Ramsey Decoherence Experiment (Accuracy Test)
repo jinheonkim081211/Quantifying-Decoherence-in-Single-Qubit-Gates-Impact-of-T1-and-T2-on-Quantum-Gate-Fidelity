@@ -1,0 +1,64 @@
+from qiskit import QuantumCircuit, transpile
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import NoiseModel, thermal_relaxation_error
+import numpy as np
+import matplotlib.pyplot as plt
+
+# -------- Parameters --------
+T1_ns = 50_000
+T2_ns = 30_000
+gate_time_ns = 100
+shots = 1024
+
+period_ns = 12_500
+delta = 2 * np.pi / period_ns
+
+num_points = 200
+wait_times = np.linspace(0, 8 * T2_ns, num_points)
+
+# -------- Noise model --------
+noise_model = NoiseModel()
+relax_err_100ns = thermal_relaxation_error(T1_ns, T2_ns, gate_time_ns)
+noise_model.add_all_qubit_quantum_error(relax_err_100ns, ['id', 'h', 'rz'])
+
+backend = AerSimulator(method='density_matrix', noise_model=noise_model)
+
+# -------- Ramsey loop --------
+p0_data = []
+for t in wait_times:
+    qc = QuantumCircuit(1, 1)
+    qc.h(0)
+    qc.barrier()
+
+    n_id = int(np.round(t / gate_time_ns))
+    for _ in range(n_id):
+        qc.id(0)
+
+    qc.barrier()
+    qc.rz(delta * t, 0)
+    qc.h(0)
+    qc.measure(0, 0)
+
+    qc_t = transpile(qc, backend, optimization_level=0,
+                     basis_gates=noise_model.basis_gates)
+    result = backend.run(qc_t, shots=shots).result()
+    counts = result.get_counts()
+    P0 = counts.get('0', 0) / shots
+    p0_data.append(P0)
+    print(f"Wait time: {int(t):7d} ns  |  P(|0⟩) = {P0:.3f}")
+
+p0_data = np.array(p0_data)
+theory = 0.5 * (1 + np.exp(-wait_times / T2_ns) * np.cos(delta * wait_times))
+
+# -------- Plot --------
+plt.figure(figsize=(8,5))
+plt.plot(wait_times, p0_data, 'o', label='Simulated P(|0⟩)')
+plt.plot(wait_times, theory, '--',
+         label=r'$ \frac{1}{2}\,[1+e^{-t/T_2}\cos(\Delta t)] $')
+plt.xlabel("Wait time t (ns)")
+plt.ylabel("P(|0⟩)")
+plt.title("Ramsey (T₂) with Thermal Relaxation: Damped Oscillations")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
