@@ -1,0 +1,42 @@
+from qiskit import QuantumCircuit, transpile
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import NoiseModel, thermal_relaxation_error
+import numpy as np
+import matplotlib.pyplot as plt
+
+t1 = 50000   # ns (20 us)
+t2 = 30000
+gate_time = 100
+shots = 1024
+
+noise_model = NoiseModel()
+relax_error = thermal_relaxation_error(t1, t2, gate_time)
+noise_model.add_all_qubit_quantum_error(relax_error, ['x', 'h', 'id', 'delay', 'u1', 'u2', 'u3'])
+
+backend = AerSimulator(noise_model=noise_model, method='density_matrix')
+
+wait_times = np.linspace(0, 5 * t1, 30)
+prob_1 = []
+
+for t in wait_times:
+    qc = QuantumCircuit(1, 1)
+    qc.x(0)
+    num_id_gates = int(t // gate_time)
+    for _ in range(num_id_gates):
+        qc.id(0)
+    qc.measure(0, 0)
+    qc_t = transpile(qc, backend)
+    job = backend.run(qc_t, shots=shots)
+    counts = job.result().get_counts()
+    p1 = counts.get('1', 0) / shots
+    prob_1.append(p1)
+    print(f"Wait time: {t:.0f} ns, P(|1⟩): {p1:.3f}")
+
+plt.plot(wait_times, prob_1, 'o', label='Simulated data')
+plt.plot(wait_times, np.exp(-wait_times/t1), '--', label='Theory: $e^{-t/T_1}$')
+plt.xlabel("Wait time (ns)")
+plt.ylabel("P(|1⟩)")
+plt.title("T₁ Relaxation Experiment (using id gates)")
+plt.legend()
+plt.grid(True)
+plt.show()
