@@ -1,0 +1,57 @@
+from qiskit import QuantumCircuit
+from qiskit_aer import AerSimulator
+from qiskit_aer.noise import NoiseModel, thermal_relaxation_error
+import numpy as np
+import matplotlib.pyplot as plt
+
+# --- Sweep parameters ---
+t1_values = np.linspace(5e3, 50e3, 100)    # 100 steps
+t2_values = np.linspace(3e3, 30e3, 100)
+gate_time = 100
+shots = 1024
+phi_vals = np.linspace(0, 2 * np.pi, 50)
+
+avg_fidelities = []
+
+for t1, t2 in zip(t1_values, t2_values):
+    fidelity_over_phases = []
+    for phi in phi_vals:
+        # Setup noise model for each t1, t2
+        noise_model = NoiseModel()
+        relax_error = thermal_relaxation_error(t1, t2, gate_time)
+        noise_model.add_all_qubit_quantum_error(relax_error, ['h', 'rz'])
+        backend = AerSimulator(noise_model=noise_model)
+
+        qc = QuantumCircuit(1, 1)
+        qc.h(0)
+        qc.rz(phi, 0)
+        qc.h(0)
+        qc.measure(0, 0)
+
+        job = backend.run(qc, shots=shots)
+        result = job.result()
+        counts = result.get_counts()
+        P0 = counts.get('0', 0) / shots
+        P1 = counts.get('1', 0) / shots
+
+        # Ideal Ramsey probabilities
+        ideal_P0 = 0.5 * (1 + np.cos(phi))
+        ideal_P1 = 1 - ideal_P0
+
+        # Classical fidelity between measured and ideal distributions
+        fidelity = (np.sqrt(P0 * ideal_P0) + np.sqrt(P1 * ideal_P1)) ** 2
+        fidelity_over_phases.append(fidelity)
+
+    # Average over all phases for this t1/t2
+    avg_fid = np.mean(fidelity_over_phases)
+    avg_fidelities.append(avg_fid)
+    print(f"T1: {t1:.0f}, T2: {t2:.0f}, Avg Fidelity: {avg_fid:.4f}")
+
+# --- Plotting ---
+plt.figure(figsize=(8,5))
+plt.plot(t1_values, avg_fidelities, marker='o')
+plt.xlabel("T1 value (ns)")
+plt.ylabel("Average Fidelity (across all phases)")
+plt.title("Average Fidelity vs. T1 (Noisy Ramsey Experiment, varying decoherence)")
+plt.grid(True)
+plt.show()
